@@ -85,17 +85,6 @@ create table task_completions (
   created_at timestamptz not null default now()
 );
 
--- Prevent double-claiming of non-shared tasks on the same date
--- For daily/anytime non-shared tasks: one child per task per day
-create unique index uq_nonshared_daily_completion
-  on task_completions (task_id, completed_date)
-  where exists (
-    select 1 from tasks t
-    where t.id = task_completions.task_id
-      and t.is_shared = false
-      and t.recurrence in ('daily', 'anytime')
-  );
-
 -- screen_time_usage
 create table screen_time_usage (
   id uuid primary key default gen_random_uuid(),
@@ -497,9 +486,6 @@ $$ language plpgsql;
 create trigger enforce_nonshared_before_insert
   before insert on task_completions
   for each row execute function enforce_nonshared_task_limit();
-
--- Drop the partial index since the trigger handles this properly
-drop index if exists uq_nonshared_daily_completion;
 
 -- ============================================================
 -- ROW LEVEL SECURITY
