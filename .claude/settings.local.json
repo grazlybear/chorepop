@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npx supabase:*)",
       "Bash(npx tsc *)",
-      "Bash(NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder npx next build)"
+      "Bash(NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder npx next build)",
+      "Bash(rm -rf .next)",
+      "Bash(NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder SUPABASE_SERVICE_ROLE_KEY=placeholder npx next build)"
     ]
   }
 }
