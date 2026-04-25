@@ -15,6 +15,22 @@ function isPublic(pathname: string): boolean {
   return false;
 }
 
+/**
+ * NextResponse.redirect() drops cookies that Supabase may have refreshed
+ * during this request. Carry them over so the new tokens reach the browser.
+ */
+function redirectWithCookies(
+  request: NextRequest,
+  source: NextResponse,
+  pathname: string,
+): NextResponse {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  const redirect = NextResponse.redirect(url);
+  source.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+  return redirect;
+}
+
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
@@ -55,7 +71,9 @@ export async function updateSession(request: NextRequest) {
       const url = request.nextUrl.clone();
       url.pathname = "/login";
       url.searchParams.set("next", pathname);
-      return NextResponse.redirect(url);
+      const redirect = NextResponse.redirect(url);
+      supabaseResponse.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+      return redirect;
     }
     return supabaseResponse;
   }
@@ -65,39 +83,45 @@ export async function updateSession(request: NextRequest) {
     return supabaseResponse;
   }
 
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", userId)
     .maybeSingle();
+
+  if (profileError) {
+    // Don't trap the user in a redirect loop on transient DB / RLS errors.
+    // Let the request through; page-level guards will redirect properly
+    // once the situation resolves.
+    console.error(
+      `[proxy] profile lookup failed for ${userId} on ${pathname}:`,
+      profileError.message,
+    );
+    return supabaseResponse;
+  }
 
   const role = profile?.role as Role | undefined;
 
   if (!role) {
     // Authenticated but no profile yet — only onboarding is allowed.
     if (isOnboarding) return supabaseResponse;
-    const url = request.nextUrl.clone();
-    url.pathname = ONBOARDING;
-    return NextResponse.redirect(url);
+    console.log(
+      `[proxy] no profile for user ${userId} (path ${pathname}) — redirecting to /onboarding`,
+    );
+    return redirectWithCookies(request, supabaseResponse, ONBOARDING);
   }
 
   if (role === "child") {
     if (isParentRoute || isOnboarding) {
-      const url = request.nextUrl.clone();
-      url.pathname = KID_PREFIX;
-      return NextResponse.redirect(url);
+      return redirectWithCookies(request, supabaseResponse, KID_PREFIX);
     }
   } else {
     // owner or parent
     if (isKidRoute) {
-      const url = request.nextUrl.clone();
-      url.pathname = PARENT_PREFIX;
-      return NextResponse.redirect(url);
+      return redirectWithCookies(request, supabaseResponse, PARENT_PREFIX);
     }
     if (isOnboarding) {
-      const url = request.nextUrl.clone();
-      url.pathname = PARENT_PREFIX;
-      return NextResponse.redirect(url);
+      return redirectWithCookies(request, supabaseResponse, PARENT_PREFIX);
     }
   }
 

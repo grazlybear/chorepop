@@ -5,7 +5,16 @@
       "Bash(npx tsc *)",
       "Bash(NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder npx next build)",
       "Bash(rm -rf .next)",
-      "Bash(NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder SUPABASE_SERVICE_ROLE_KEY=placeholder npx next build)"
+      "Bash(NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=placeholder SUPABASE_SERVICE_ROLE_KEY=placeholder npx next build)",
+      "Bash(npx next *)",
+      "Bash(npx eslint *)",
+      "Bash(curl -sS --max-time 5 http://127.0.0.1:54321/rest/v1/ -o /dev/null -w \"REST: %{http_code}\\\\n\")",
+      "Bash(curl -sS --max-time 5 http://127.0.0.1:54321/auth/v1/health -o /dev/null -w \"Auth: %{http_code}\\\\n\")",
+      "Bash(git -C C:/repos/chorepop log --oneline -20)",
+      "Bash(supabase status *)",
+      "Bash(curl -s -X POST \"http://127.0.0.1:54321/rest/v1/rpc/\" -H \"Content-Type: application/json\" -o /dev/null -w \"%{http_code}\\\\n\" --max-time 5)",
+      "Bash(psql \"postgresql://postgres:postgres@127.0.0.1:54322/postgres\" -c \"select id, display_name, role, household_id, created_at from public.profiles order by created_at desc limit 10;\")",
+      "Bash(python -c \"import sys, json; d=json.load\\(sys.stdin\\); us=d.get\\('users', []\\); print\\(json.dumps\\([{'id':u['id'],'email':u.get\\('email'\\),'created':u.get\\('created_at'\\)} for u in us][:3], indent=2\\)\\)\")"
     ]
   }
 }

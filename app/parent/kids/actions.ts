@@ -1,6 +1,7 @@
 "use server";
 
 import { randomUUID } from "crypto";
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
   createAdminClient,
@@ -78,6 +79,8 @@ export async function createKid(input: {
     return { ok: false, error: profileErr.message };
   }
 
+  revalidatePath("/parent");
+  revalidatePath("/parent/kids");
   return { ok: true, kidId: created.user.id };
 }
 
@@ -129,5 +132,67 @@ export async function resetKidPin(input: {
   });
 
   if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+/**
+ * Adds (or subtracts) minutes from a kid's balance. Inserts a row in
+ * balance_adjustments with the parent recorded as adjusted_by.
+ */
+export async function adjustBalance(input: {
+  kidId: string;
+  minutes: number;
+  reason: string | null;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (!Number.isInteger(input.minutes) || input.minutes === 0) {
+    return { ok: false, error: "Enter a non-zero whole number of minutes" };
+  }
+  if (Math.abs(input.minutes) > 10000) {
+    return { ok: false, error: "Adjustment is too large" };
+  }
+
+  const supabase = await createClient();
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const callerId = claimsData?.claims?.sub;
+  if (!callerId) return { ok: false, error: "Not authenticated" };
+
+  const { data: callerProfile } = await supabase
+    .from("profiles")
+    .select("household_id, role")
+    .eq("id", callerId)
+    .maybeSingle();
+
+  if (!callerProfile || !callerProfile.household_id) {
+    return { ok: false, error: "Household not found" };
+  }
+  if (callerProfile.role !== "owner" && callerProfile.role !== "parent") {
+    return { ok: false, error: "Only parents can adjust balances" };
+  }
+
+  const { data: kidProfile } = await supabase
+    .from("profiles")
+    .select("household_id, role")
+    .eq("id", input.kidId)
+    .maybeSingle();
+
+  if (!kidProfile || kidProfile.household_id !== callerProfile.household_id) {
+    return { ok: false, error: "Kid not found in this household" };
+  }
+  if (kidProfile.role !== "child") {
+    return { ok: false, error: "That profile is not a kid" };
+  }
+
+  const reason = input.reason?.trim() || null;
+  const { error } = await supabase.from("balance_adjustments").insert({
+    child_id: input.kidId,
+    adjusted_by: callerId,
+    minutes: input.minutes,
+    reason,
+  });
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/parent");
+  revalidatePath("/parent/kids");
   return { ok: true };
 }

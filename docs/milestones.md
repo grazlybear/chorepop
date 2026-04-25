@@ -14,8 +14,8 @@ implementation plan and cross-milestone decisions.
 |---|-------------------------------------------------|--------------|
 | 1 | Foundation & design system                      | ✅ Done      |
 | 2 | Auth — parent Google OAuth + kid PIN            | ✅ Done      |
-| 3 | Parent — kids & household pages                 | ⏳ Next      |
-| 4 | Parent — tasks CRUD + assignments               | Pending      |
+| 3 | Parent — kids & household pages                 | ✅ Done      |
+| 4 | Parent — tasks CRUD + assignments               | ⏳ Next      |
 | 5 | Kid core — dashboard, tasks, screen-time log    | Pending      |
 | 6 | Kid extras — achievements, summaries            | Pending      |
 | 7 | Polish — realtime, confetti, odometer, sounds   | Pending      |
@@ -91,17 +91,16 @@ Next 16's `cacheComponents: true` requires explicit `<Suspense>` around all unca
 - Stub shells at `/parent` and `/kid` with nav + sign-out.
 - Server actions at [app/parent/kids/actions.ts](../app/parent/kids/actions.ts): `createKid()` and `resetKidPin()` (service role). UI wiring is M3.
 
+### M3 — Parent kids & household pages
+
+- `/parent` dashboard — kid overview cards (avatar, balance via `child_current_balance()`, today's completion count, best active streak), negative-balance alert banner, quick links to Tasks/Kids/Household, and an empty-state CTA when there are no kids.
+- `/parent/kids` — collapsible "Add kid" form (name + emoji avatar picker + 4-digit PIN), per-kid card with inline balance-adjust form (signed integer + optional reason → `balance_adjustments`) and inline reset-PIN form (calls existing `resetKidPin`).
+- `/parent/household` — big copyable 6-char invite code, owner-only "Generate new code" (calls `generate_invite_code()` then UPDATEs the household), vacation-mode toggle (`households.is_paused`), parents/owners member list with owner-only "Make owner" (atomic role swap + `households.created_by` update) and "Remove" actions.
+- New server actions: [adjustBalance](../app/parent/kids/actions.ts) and [household/actions.ts](../app/parent/household/actions.ts) (`regenerateInviteCode`, `setHouseholdPaused`, `changeMemberRole`, `removeMember`). All check role and household membership before writing; non-owner attempts return a friendly error.
+
 ---
 
 ## Pending milestones (detail)
-
-### M3 — Parent kids & household pages
-
-Wire up the parent-facing surfaces that M2 left stubbed.
-
-- `/parent` dashboard — overview cards per kid: avatar, name, current balance (from `child_current_balance()`), today's completed task count, active streaks. Alert banner if any kid is in the negative.
-- `/parent/kids` — list of kids with avatar, name, balance, reset-PIN button; "Add kid" form (display name, avatar picker, 4-digit PIN) calling the existing `createKid` action. Manual balance adjustment form (signed minutes + reason) inserting into `balance_adjustments`.
-- `/parent/household` — display invite code (big, copyable), regenerate button (UPDATE `households.invite_code = generate_invite_code()`), vacation/pause toggle (`households.is_paused`), member list (all parents/owners) with role change + remove.
 
 ### M4 — Parent tasks
 
