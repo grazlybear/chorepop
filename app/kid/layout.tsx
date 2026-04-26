@@ -41,6 +41,7 @@ export default async function KidLayout({
           <KidNavLink href="/kid/tasks">✅ Chores</KidNavLink>
           <KidNavLink href="/kid/log">📱 Use time</KidNavLink>
           <KidNavLink href="/kid/achievements">🏆 Badges</KidNavLink>
+          <KidNavLink href="/kid/summary">📊 My week</KidNavLink>
         </nav>
       </header>
       <main className="flex-1 max-w-3xl w-full mx-auto px-5 py-6">{children}</main>

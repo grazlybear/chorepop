@@ -1,0 +1,1 @@
+select process_weekly_rollover();

@@ -17,8 +17,9 @@ implementation plan and cross-milestone decisions.
 | 3 | Parent — kids & household pages                 | ✅ Done      |
 | 4 | Parent — tasks CRUD + assignments               | ✅ Done      |
 | 5 | Kid core — dashboard, tasks, screen-time log    | ✅ Done      |
-| 6 | Kid extras — achievements, summaries            | ⏳ Next      |
-| 7 | Polish — realtime, confetti, odometer, sounds   | Pending      |
+| 6 | Kid extras — achievements, summaries            | ✅ Done      |
+| 7 | Household timezone (date correctness)           | ⏳ Next      |
+| 8 | Polish — realtime, confetti, odometer, sounds   | Pending      |
 
 ---
 
@@ -118,23 +119,35 @@ Next 16's `cacheComponents: true` requires explicit `<Suspense>` around all unca
 - Server actions in [app/kid/actions.ts](../app/kid/actions.ts): `claimTask` (handles fixed and per-minute, enforces per-kid recurrence guard, applies per-minute cap by clamping `minutes_earned` to remaining capacity, lets the existing DB trigger handle non-shared sibling collisions) and `logScreenTime`. Both gated by `requireKid()`.
 - Migration `20260425000002_kid_visibility.sql` — broadens the SELECT policy on `task_completions` and `streaks` so any household member can read any row scoped to their household. Was needed for sibling-lock detection on `/kid/tasks` and a working household leaderboard on `/kid` (the original parent-or-self policy returned an empty set when a kid asked about siblings, silently breaking both features). `screen_time_usage` and `balance_adjustments` policies stay parent-or-self for privacy.
 
+### M6 — Kid extras & parent summary
+
+- `/kid/achievements` — three-stat header (lifetime min, chores done, best current streak), an "Active streaks 🔥" section listing every task where `current_streak > 0` (with task name + icon, current and longest), and a 2/3-column grid of every applicable badge. Unlocked badges show a coral pill + colorful icon; locked ones go grayscale with a thin progress bar and an `N/M` label per criteria type (`first_task`, `tasks_completed`, `total_earned`, `streak_days`). Achievements query uses `or(household_id.is.null,household_id.eq.<id>)` so global + household-scoped both show up.
+- `/kid/summary` — pulls the kid's most recent `weekly_summaries` row as the headline report card (color-coded by carryover_out sign, headline copy switches between "Awesome week!" / "Tough week — but you can bounce back!" / "Steady week"). Shows earned / used / adjustments / starting balance as a 4-up grid, surfaces the doubling penalty when `penalty > 0`, and pins "Carrying into next week" as the big number. Below that, a "Past weeks" list of the previous 5 summaries. Empty state ("first summary lands after Sunday rollover") has a CTA to `/kid/tasks`.
+- New nav link `📊 My week` added to `/kid/layout.tsx`.
+- `/parent/summary` — one card per kid with their latest `weekly_summaries` row (avatar, week range, earned/used/adjustments cells, doubled-penalty callout, big carryover number, color-coded border). Below the cards, a side-by-side bar chart comparing minutes earned across kids for the most recent shared week (only renders when ≥2 kids have a summary for the same `week_start`). Empty states for "no kids yet" and "no summary yet for this kid".
+- No new server actions or migrations — the data this milestone surfaces (`achievements`, `child_achievements`, `streaks`, `weekly_summaries`) all existed; what was missing was the UI layer.
+
 ---
 
 ## Pending milestones (detail)
 
-### M5 — Kid core
+### M7 — Household timezone (date correctness)
 
-- `/kid` dashboard — big friendly greeting, prominent animated balance display (battery/jar metaphor, color by sign), quick-action buttons (Do a Chore / Use Screen Time / My Badges), streak flame, weekly mini bar chart (earned vs used by day), level + progress bar (compute from lifetime `sum(task_completions.minutes_earned)` — spec has the level table), and the household leaderboard (kids ranked by minutes earned this week).
-- `/kid/tasks` — only tasks in `task_assignments` for this kid. Big cards. For `fixed`: tap "Claim" → insert completion + celebrate. For `per_minute`: tap → number input with ± buttons → insert completion with `duration_minutes`, enforce `max_daily_minutes`. Gray out already-claimed-today and non-shared-already-claimed-by-sibling.
-- `/kid/log` — "How many minutes did you use?" with ± controls (steps of 5 and 15), note chips (iPad/TV/Computer/Phone), insert into `screen_time_usage` with an animated balance drop.
+**The bug this is paying down.** Every "today" / "this week" computation currently uses server UTC. `claimTask` and `logScreenTime` stamp `completed_date` / `usage_date` from `new Date().toISOString()`. The SQL helpers `current_week_start()` / `current_week_end()` and `process_weekly_rollover()` use `current_date` (the database server's UTC date). For users in the Americas, late-evening local time is already "tomorrow" in UTC — meaning Saturday-night chores land in the next week's bucket and the Sunday rollover misses them. Surfaced when a kid's claims at ~9 pm PDT Apr 25 (= 04:00 UTC Apr 26) didn't show up in the rollover for the week ending Apr 25.
 
-### M6 — Kid extras & parent summary
+**Scope.**
+- Migration: add `households.timezone` (text, IANA name, default `'America/Denver'`). Backfill existing rows.
+- SQL helpers: replace `current_date` with `(now() at time zone <tz>)::date` driven by the kid's household timezone. Helpers become `current_week_start(p_household_id uuid)` and `current_week_end(p_household_id uuid)`.
+- `child_current_balance(p_child_id)`: look up the kid's household timezone and use the timezone-aware week boundaries.
+- `process_weekly_rollover()`: iterate per household; for each, compute "the week that just ended" in that household's timezone. A household whose Sunday hasn't rolled over yet (because UTC has crossed midnight but local hasn't) should not roll yet — schedule the cron to fire often enough (hourly?) and have the function only insert a summary when the household's local date is already Sunday and the week ending Saturday hasn't been rolled.
+- TS side: a `lib/dates.ts` helper that converts "now" to a date in a given IANA tz (using `Intl.DateTimeFormat`). All call sites that currently use `new Date().toISOString().slice(0, 10)` switch to it: `claimTask`, `logScreenTime`, `/kid/page.tsx` (today's completions, weekly chart, leaderboard), `/kid/tasks/page.tsx` (recurrence guards, sibling lock, daily cap), `/parent/page.tsx` (today's completion count). Pass the household tz down from each page's profile lookup.
+- UI: `/parent/household` gains a timezone picker (dropdown of common US zones + a free-text IANA input for everyone else). Owner-only.
 
-- `/kid/achievements` — grid of all achievements (global + household). Unlocked: colorful + unlock date. Locked: grayed with progress (e.g. "3/7 days"). Streaks section using `streaks` rows.
-- `/kid/summary` — auto-shown on first login of a new week if a `weekly_summaries` row exists. Report card: earned, used, bonus/penalties, new balance. Encouraging tone.
-- `/parent/summary` — per-kid summary cards for the past week + a small comparison table/chart.
+**Out of scope.** Per-kid timezones (siblings travel separately). DST-aware historical rollovers for already-rolled weeks. Migrating existing summary rows backwards.
 
-### M7 — Polish
+**Acceptance.** A kid in `America/Denver` claiming at 11 pm Saturday local sees that completion counted in this week's earned both on the dashboard and in the next rollover. `process_weekly_rollover()` fires for households at Sunday-local-midnight, regardless of UTC.
+
+### M8 — Polish
 
 - Supabase realtime subscriptions on the kid dashboard so parent adjustments update the balance live.
 - Confetti burst on earning screen time.
@@ -161,5 +174,4 @@ Before M2's auth actually works against a live Supabase project:
 
 - **Apple OAuth** — button shown but disabled; enable when an Apple Developer account is available.
 - **Typed Supabase client** — skipped hand-writing `Database` types for M1/M2. Generate with `npx supabase gen types typescript --linked > lib/database.types.ts` (requires a linked project) and switch `createClient<Database>()` to typed form during M3 or M5.
-- **Role in JWT custom claim** — eliminates per-request DB lookup in the middleware. M7 candidate.
-- **Timezone** — v1 runs in UTC; spec mentions America/Denver as a future configurable default.
+- **Role in JWT custom claim** — eliminates per-request DB lookup in the middleware. M8 candidate.
