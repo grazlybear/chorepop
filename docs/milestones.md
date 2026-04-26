@@ -18,8 +18,8 @@ implementation plan and cross-milestone decisions.
 | 4 | Parent — tasks CRUD + assignments               | ✅ Done      |
 | 5 | Kid core — dashboard, tasks, screen-time log    | ✅ Done      |
 | 6 | Kid extras — achievements, summaries            | ✅ Done      |
-| 7 | Household timezone (date correctness)           | ⏳ Next      |
-| 8 | Polish — realtime, confetti, odometer, sounds   | Pending      |
+| 7 | Household timezone (date correctness)           | ✅ Done      |
+| 8 | Polish — realtime, confetti, odometer, sounds   | ⏳ Next      |
 
 ---
 
@@ -127,25 +127,19 @@ Next 16's `cacheComponents: true` requires explicit `<Suspense>` around all unca
 - `/parent/summary` — one card per kid with their latest `weekly_summaries` row (avatar, week range, earned/used/adjustments cells, doubled-penalty callout, big carryover number, color-coded border). Below the cards, a side-by-side bar chart comparing minutes earned across kids for the most recent shared week (only renders when ≥2 kids have a summary for the same `week_start`). Empty states for "no kids yet" and "no summary yet for this kid".
 - No new server actions or migrations — the data this milestone surfaces (`achievements`, `child_achievements`, `streaks`, `weekly_summaries`) all existed; what was missing was the UI layer.
 
+### M7 — Household timezone
+
+- Migration `20260426000001_household_timezone.sql` — adds `households.timezone text not null default 'America/Denver'` (existing rows backfill via the default). Drops the no-arg `current_week_start()` / `current_week_end()` helpers that hardcoded `current_date`. Rewrites `child_current_balance(p_child_id)` and `process_weekly_rollover()` to look up the household's timezone and compute `(now() at time zone tz)::date` instead. Adds `auth_household_timezone()` RPC (mirrors `auth_household_id`).
+- `process_weekly_rollover()` now iterates per household, computing each one's "most recent complete Sun–Sat" in its own local time. Idempotent — safe to schedule hourly (`0 * * * *`) so each timezone gets picked up shortly after local Sunday midnight. The cron schedule line is left commented in the migration since pg_cron isn't enabled in local dev.
+- New helpers in [lib/dates.ts](../lib/dates.ts) (replaces the deleted `lib/week.ts`): `localDateInTz(tz, instant?)` (Intl-based YYYY-MM-DD), `startOfWeekIso(localDateIso)` (date-string arithmetic), `weekDatesFrom(weekStartIso)`, `isValidTimezone(tz)`, `FALLBACK_TIMEZONE = 'America/Denver'`, `DOW_LABELS`. The string-arithmetic functions are pure and tz-independent — only `localDateInTz` ever consults the timezone, which keeps reasoning easy.
+- Every TS site that previously did `new Date().toISOString().slice(0, 10)` was rewired to fetch the household's timezone and route through `localDateInTz`: `app/kid/actions.ts` (`requireKid` returns `timezone`; both `claimTask` and `logScreenTime` use it), `app/kid/page.tsx` (today + week chart + leaderboard), `app/kid/tasks/page.tsx` (recurrence guards, sibling lock, daily cap), `app/parent/page.tsx` (today's completion count). Pages that just render existing summaries or call the balance RPC don't compute dates client-side, so they didn't need touching.
+- `/parent/household` gains a Timezone card. Owner-only. Toggle between a "Common" select (Pacific / Mountain / Arizona / Central / Eastern / Alaska / Hawaii / UTC) and a free-text "Other (IANA)" mode for everything else. Shows a live `Intl.DateTimeFormat` preview of the household's current local time. Validation goes through `isValidTimezone` (which constructs an `Intl.DateTimeFormat` and catches `RangeError`).
+- New server action `setHouseholdTimezone` in [app/parent/household/actions.ts](../app/parent/household/actions.ts). Owner-only; revalidates `/parent`, `/kid`, and `/parent/household` so cached pages re-fetch with the new tz.
+- **Out of scope and explicitly not done:** retroactively shifting existing `task_completions.completed_date` / `screen_time_usage.usage_date` rows from UTC to the configured tz. Re-rolling already-rolled `weekly_summaries`. Both can re-bucket history in surprising ways; if a household wants a fresh test, an admin can `delete from weekly_summaries` and call `process_weekly_rollover()` again, and pre-existing UTC-stamped completion rows will simply be slightly mis-bucketed by day until they age out.
+
 ---
 
 ## Pending milestones (detail)
-
-### M7 — Household timezone (date correctness)
-
-**The bug this is paying down.** Every "today" / "this week" computation currently uses server UTC. `claimTask` and `logScreenTime` stamp `completed_date` / `usage_date` from `new Date().toISOString()`. The SQL helpers `current_week_start()` / `current_week_end()` and `process_weekly_rollover()` use `current_date` (the database server's UTC date). For users in the Americas, late-evening local time is already "tomorrow" in UTC — meaning Saturday-night chores land in the next week's bucket and the Sunday rollover misses them. Surfaced when a kid's claims at ~9 pm PDT Apr 25 (= 04:00 UTC Apr 26) didn't show up in the rollover for the week ending Apr 25.
-
-**Scope.**
-- Migration: add `households.timezone` (text, IANA name, default `'America/Denver'`). Backfill existing rows.
-- SQL helpers: replace `current_date` with `(now() at time zone <tz>)::date` driven by the kid's household timezone. Helpers become `current_week_start(p_household_id uuid)` and `current_week_end(p_household_id uuid)`.
-- `child_current_balance(p_child_id)`: look up the kid's household timezone and use the timezone-aware week boundaries.
-- `process_weekly_rollover()`: iterate per household; for each, compute "the week that just ended" in that household's timezone. A household whose Sunday hasn't rolled over yet (because UTC has crossed midnight but local hasn't) should not roll yet — schedule the cron to fire often enough (hourly?) and have the function only insert a summary when the household's local date is already Sunday and the week ending Saturday hasn't been rolled.
-- TS side: a `lib/dates.ts` helper that converts "now" to a date in a given IANA tz (using `Intl.DateTimeFormat`). All call sites that currently use `new Date().toISOString().slice(0, 10)` switch to it: `claimTask`, `logScreenTime`, `/kid/page.tsx` (today's completions, weekly chart, leaderboard), `/kid/tasks/page.tsx` (recurrence guards, sibling lock, daily cap), `/parent/page.tsx` (today's completion count). Pass the household tz down from each page's profile lookup.
-- UI: `/parent/household` gains a timezone picker (dropdown of common US zones + a free-text IANA input for everyone else). Owner-only.
-
-**Out of scope.** Per-kid timezones (siblings travel separately). DST-aware historical rollovers for already-rolled weeks. Migrating existing summary rows backwards.
-
-**Acceptance.** A kid in `America/Denver` claiming at 11 pm Saturday local sees that completion counted in this week's earned both on the dashboard and in the next rollover. `process_weekly_rollover()` fires for households at Sunday-local-midnight, regardless of UTC.
 
 ### M8 — Polish
 

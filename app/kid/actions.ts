@@ -2,6 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import {
+  FALLBACK_TIMEZONE,
+  localDateInTz,
+  startOfWeekIso,
+} from "@/lib/dates";
 
 type ClaimResult =
   | { ok: true; minutesEarned: number; clamped: boolean }
@@ -12,7 +17,12 @@ type SimpleResult = { ok: true } | { ok: false; error: string };
 type SupabaseClient = Awaited<ReturnType<typeof createClient>>;
 
 type KidCtx =
-  | { ok: true; supabase: SupabaseClient; kidId: string }
+  | {
+      ok: true;
+      supabase: SupabaseClient;
+      kidId: string;
+      timezone: string;
+    }
   | { ok: false; error: string };
 
 async function requireKid(): Promise<KidCtx> {
@@ -23,7 +33,7 @@ async function requireKid(): Promise<KidCtx> {
 
   const { data: profile } = await supabase
     .from("profiles")
-    .select("role")
+    .select("role, household_id")
     .eq("id", kidId)
     .maybeSingle();
 
@@ -32,19 +42,17 @@ async function requireKid(): Promise<KidCtx> {
     return { ok: false, error: "Only kids can claim tasks" };
   }
 
-  return { ok: true, supabase, kidId };
-}
+  let timezone = FALLBACK_TIMEZONE;
+  if (profile.household_id) {
+    const { data: hh } = await supabase
+      .from("households")
+      .select("timezone")
+      .eq("id", profile.household_id)
+      .maybeSingle();
+    timezone = hh?.timezone ?? FALLBACK_TIMEZONE;
+  }
 
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function startOfWeekIso(today: Date = new Date()): string {
-  const d = new Date(
-    Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()),
-  );
-  d.setUTCDate(d.getUTCDate() - d.getUTCDay());
-  return d.toISOString().slice(0, 10);
+  return { ok: true, supabase, kidId, timezone };
 }
 
 /**
@@ -59,7 +67,7 @@ export async function claimTask(input: {
 }): Promise<ClaimResult> {
   const ctx = await requireKid();
   if (!ctx.ok) return ctx;
-  const { supabase, kidId } = ctx;
+  const { supabase, kidId, timezone } = ctx;
 
   const { data: task, error: taskErr } = await supabase
     .from("tasks")
@@ -89,8 +97,8 @@ export async function claimTask(input: {
     return { ok: false, error: "This chore isn't assigned to you" };
   }
 
-  const today = todayIso();
-  const weekStart = startOfWeekIso();
+  const today = localDateInTz(timezone);
+  const weekStart = startOfWeekIso(today);
   const rewardAmount = Number(task.reward_amount);
 
   // Per-kid recurrence guard (sibling-side handled by DB trigger).
@@ -190,7 +198,7 @@ export async function logScreenTime(input: {
 }): Promise<SimpleResult> {
   const ctx = await requireKid();
   if (!ctx.ok) return ctx;
-  const { supabase, kidId } = ctx;
+  const { supabase, kidId, timezone } = ctx;
 
   const minutes = Math.floor(input.minutes);
   if (!Number.isFinite(minutes) || minutes <= 0) {
@@ -204,7 +212,7 @@ export async function logScreenTime(input: {
 
   const { error } = await supabase.from("screen_time_usage").insert({
     child_id: kidId,
-    usage_date: todayIso(),
+    usage_date: localDateInTz(timezone),
     minutes_used: minutes,
     note,
   });

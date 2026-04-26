@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { isValidTimezone } from "@/lib/dates";
 
 type Result = { ok: true } | { ok: false; error: string };
 
@@ -206,5 +207,36 @@ export async function removeMember(memberId: string): Promise<Result> {
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/parent/household");
+  return { ok: true };
+}
+
+/**
+ * Sets the household's IANA timezone. Owner-only — affects every "today" /
+ * "this week" computation across the app, including the Sunday rollover.
+ */
+export async function setHouseholdTimezone(tz: string): Promise<Result> {
+  const trimmed = tz.trim();
+  if (!trimmed) return { ok: false, error: "Pick a timezone" };
+  if (!isValidTimezone(trimmed)) {
+    return { ok: false, error: `"${trimmed}" isn't a valid IANA timezone` };
+  }
+
+  const ctx = await getCallerContext();
+  if (!ctx.ok) return { ok: false, error: ctx.error };
+  if (ctx.profile.role !== "owner") {
+    return { ok: false, error: "Only the owner can change the timezone" };
+  }
+
+  const { supabase, profile } = ctx;
+  const { error } = await supabase
+    .from("households")
+    .update({ timezone: trimmed })
+    .eq("id", profile.household_id);
+
+  if (error) return { ok: false, error: error.message };
+
+  revalidatePath("/parent/household");
+  revalidatePath("/parent");
+  revalidatePath("/kid");
   return { ok: true };
 }

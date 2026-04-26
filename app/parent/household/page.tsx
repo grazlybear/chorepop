@@ -23,7 +23,7 @@ export default async function HouseholdPage() {
 
   const { data: household } = await supabase
     .from("households")
-    .select("id, name, invite_code, is_paused, created_by")
+    .select("id, name, invite_code, is_paused, timezone, created_by")
     .eq("id", profile.household_id)
     .maybeSingle();
 
@@ -70,6 +70,7 @@ export default async function HouseholdPage() {
           name: household.name,
           inviteCode: household.invite_code,
           isPaused: household.is_paused,
+          timezone: household.timezone,
         }}
         members={members}
       />

@@ -3,7 +3,13 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { levelFor } from "@/lib/levels";
-import { DOW_LABELS, isoDate, startOfWeekUTC, weekDates } from "@/lib/week";
+import {
+  DOW_LABELS,
+  FALLBACK_TIMEZONE,
+  localDateInTz,
+  startOfWeekIso,
+  weekDatesFrom,
+} from "@/lib/dates";
 
 export const metadata = {
   title: "ChorePop",
@@ -23,12 +29,16 @@ export default async function KidDashboardPage() {
 
   if (!profile?.household_id) redirect("/login");
 
-  const today = new Date();
-  const weekStart = isoDate(startOfWeekUTC(today));
-  const weekDays = weekDates(today);
-  const todayIso = isoDate(
-    new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())),
-  );
+  const { data: household } = await supabase
+    .from("households")
+    .select("timezone")
+    .eq("id", profile.household_id)
+    .maybeSingle();
+  const timezone = household?.timezone ?? FALLBACK_TIMEZONE;
+
+  const todayIso = localDateInTz(timezone);
+  const weekStart = startOfWeekIso(todayIso);
+  const weekDays = weekDatesFrom(weekStart);
 
   const [
     balanceRes,

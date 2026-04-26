@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { FALLBACK_TIMEZONE, localDateInTz } from "@/lib/dates";
 
 type Kid = {
   id: string;
@@ -32,6 +33,13 @@ export default async function ParentDashboardPage() {
   }
   if (!profile?.household_id) redirect("/onboarding");
 
+  const { data: household } = await supabase
+    .from("households")
+    .select("timezone")
+    .eq("id", profile.household_id)
+    .maybeSingle();
+  const timezone = household?.timezone ?? FALLBACK_TIMEZONE;
+
   const { data: kidsData } = await supabase
     .from("profiles")
     .select("id, display_name, avatar_url, is_active")
@@ -43,7 +51,7 @@ export default async function ParentDashboardPage() {
   const kids = (kidsData ?? []) as Kid[];
   const kidIds = kids.map((k) => k.id);
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateInTz(timezone);
 
   const [balances, completions, streaks] = await Promise.all([
     Promise.all(

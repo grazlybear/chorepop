@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent } from "@/components/ui/card";
-import { isoDate, startOfWeekUTC } from "@/lib/week";
+import { FALLBACK_TIMEZONE, localDateInTz, startOfWeekIso } from "@/lib/dates";
 import { TaskBoard, type KidTaskCard } from "./task-board";
 
 export const metadata = {
@@ -14,11 +14,24 @@ export default async function KidTasksPage() {
   const kidId = claimsData?.claims?.sub;
   if (!kidId) redirect("/login");
 
-  const today = new Date();
-  const todayIsoStr = isoDate(
-    new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate())),
-  );
-  const weekStart = isoDate(startOfWeekUTC(today));
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("household_id")
+    .eq("id", kidId)
+    .maybeSingle();
+
+  let timezone = FALLBACK_TIMEZONE;
+  if (profile?.household_id) {
+    const { data: household } = await supabase
+      .from("households")
+      .select("timezone")
+      .eq("id", profile.household_id)
+      .maybeSingle();
+    timezone = household?.timezone ?? FALLBACK_TIMEZONE;
+  }
+
+  const todayIsoStr = localDateInTz(timezone);
+  const weekStart = startOfWeekIso(todayIsoStr);
 
   // Pull all tasks assigned to this kid via the join table.
   const { data: assignments } = await supabase

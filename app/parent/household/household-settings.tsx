@@ -9,6 +9,7 @@ import {
   regenerateInviteCode,
   removeMember,
   setHouseholdPaused,
+  setHouseholdTimezone,
 } from "./actions";
 
 type Member = {
@@ -22,7 +23,19 @@ type Household = {
   name: string;
   inviteCode: string;
   isPaused: boolean;
+  timezone: string;
 };
+
+const COMMON_TIMEZONES: Array<{ value: string; label: string }> = [
+  { value: "America/Los_Angeles", label: "Pacific (Los Angeles)" },
+  { value: "America/Denver", label: "Mountain (Denver)" },
+  { value: "America/Phoenix", label: "Arizona (Phoenix, no DST)" },
+  { value: "America/Chicago", label: "Central (Chicago)" },
+  { value: "America/New_York", label: "Eastern (New York)" },
+  { value: "America/Anchorage", label: "Alaska (Anchorage)" },
+  { value: "Pacific/Honolulu", label: "Hawaii (Honolulu)" },
+  { value: "UTC", label: "UTC" },
+];
 
 export function HouseholdSettings({
   currentUserId,
@@ -43,6 +56,7 @@ export function HouseholdSettings({
         canRegenerate={isOwner}
       />
       <VacationCard isPaused={household.isPaused} canToggle={isOwner} />
+      <TimezoneCard timezone={household.timezone} canEdit={isOwner} />
       <MembersCard
         members={members}
         currentUserId={currentUserId}
@@ -186,6 +200,150 @@ function VacationCard({
           <span className="text-xs text-muted-foreground self-center">
             Owner only
           </span>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function TimezoneCard({
+  timezone,
+  canEdit,
+}: {
+  timezone: string;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const isCommon = COMMON_TIMEZONES.some((t) => t.value === timezone);
+  const [mode, setMode] = useState<"common" | "custom">(
+    isCommon ? "common" : "custom",
+  );
+  const [draft, setDraft] = useState(timezone);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const localPreview = (() => {
+    try {
+      return new Intl.DateTimeFormat(undefined, {
+        timeZone: timezone,
+        weekday: "short",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+      }).format(new Date());
+    } catch {
+      return null;
+    }
+  })();
+
+  function save() {
+    setError(null);
+    setSaved(false);
+    startTransition(async () => {
+      const res = await setHouseholdTimezone(draft);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      setSaved(true);
+      router.refresh();
+    });
+  }
+
+  return (
+    <Card>
+      <CardContent className="p-5 sm:p-6 flex flex-col gap-4">
+        <div>
+          <h2 className="font-display font-bold text-xl">Timezone</h2>
+          <p className="text-sm text-muted-foreground">
+            Used for &ldquo;today&rdquo; and weekly rollover. Currently:{" "}
+            <span className="font-display font-semibold text-foreground">
+              {timezone}
+            </span>
+            {localPreview ? (
+              <>
+                {" · "}
+                <span className="text-foreground">Local now: {localPreview}</span>
+              </>
+            ) : null}
+          </p>
+        </div>
+
+        {canEdit ? (
+          <>
+            <div className="flex gap-2 text-sm">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("common");
+                  if (!COMMON_TIMEZONES.some((t) => t.value === draft)) {
+                    setDraft(COMMON_TIMEZONES[0].value);
+                  }
+                }}
+                className={`px-3 h-9 rounded-full border-2 font-display font-bold transition-all active:scale-95 ${
+                  mode === "common"
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border bg-background hover:bg-muted"
+                }`}
+              >
+                Common
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("custom")}
+                className={`px-3 h-9 rounded-full border-2 font-display font-bold transition-all active:scale-95 ${
+                  mode === "custom"
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "border-border bg-background hover:bg-muted"
+                }`}
+              >
+                Other (IANA)
+              </button>
+            </div>
+
+            {mode === "common" ? (
+              <select
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className="h-12 px-3 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-4 focus:ring-primary/30 focus:border-primary"
+              >
+                {COMMON_TIMEZONES.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Europe/London"
+                className="h-12 px-4 rounded-lg border-2 border-border bg-background focus:outline-none focus:ring-4 focus:ring-primary/30 focus:border-primary font-mono text-sm"
+              />
+            )}
+
+            {error ? (
+              <div className="text-sm text-negative">{error}</div>
+            ) : saved ? (
+              <div className="text-sm text-positive">Saved.</div>
+            ) : null}
+
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={save}
+              disabled={pending || draft === timezone}
+              className="self-start"
+            >
+              {pending ? "Saving…" : "Save timezone"}
+            </Button>
+          </>
+        ) : (
+          <span className="text-xs text-muted-foreground">Owner only</span>
         )}
       </CardContent>
     </Card>
