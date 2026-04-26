@@ -16,8 +16,8 @@ implementation plan and cross-milestone decisions.
 | 2 | Auth — parent Google OAuth + kid PIN            | ✅ Done      |
 | 3 | Parent — kids & household pages                 | ✅ Done      |
 | 4 | Parent — tasks CRUD + assignments               | ✅ Done      |
-| 5 | Kid core — dashboard, tasks, screen-time log    | ⏳ Next      |
-| 6 | Kid extras — achievements, summaries            | Pending      |
+| 5 | Kid core — dashboard, tasks, screen-time log    | ✅ Done      |
+| 6 | Kid extras — achievements, summaries            | ⏳ Next      |
 | 7 | Polish — realtime, confetti, odometer, sounds   | Pending      |
 
 ---
@@ -101,11 +101,22 @@ Next 16's `cacheComponents: true` requires explicit `<Suspense>` around all unca
 
 ### M4 — Parent tasks
 
-- Migration `20260425000001_tasks_numeric_reward.sql` — promotes `tasks.reward_amount` from `integer` to `numeric(6,2)` so per_minute rates like `0.5` (Read, Outside Time, Homework starters) round-trip correctly. `task_completions.minutes_earned` stays integer; computation will floor at insert time when M5 wires up claiming.
+- Migration `20260425000001_tasks_numeric_reward.sql` — promotes `tasks.reward_amount` from `integer` to `numeric(6,2)` so per_minute rates like `0.5` (Read, Outside Time, Homework starters) round-trip correctly. `task_completions.minutes_earned` stays integer; computation floors at insert time in M5's `claimTask`.
 - `/parent/tasks` — server-rendered list of household tasks with reward summary, recurrence, assigned-kid chips, and active state. Per-task controls: Edit, Pause/Resume (`is_active`), Delete (cascades completions via FK).
 - Add/Edit form (`tasks-manager.tsx`): name, optional description, 24-emoji icon picker, fixed vs per-minute reward type, decimal-allowing amount input, recurrence chooser, shared toggle, optional daily cap (per-minute only), kid-assignment checkbox grid. Form is reused for create and edit by passing the existing row.
 - Quick-add starter-task picker fed by the seeded `suggested_tasks` table. Auto-assigns to all active kids on click. Filters out starters whose name has already been adopted (case-insensitive) so the list shrinks as you go.
 - Server actions in [tasks/actions.ts](../app/parent/tasks/actions.ts): `createTask`, `updateTask`, `setTaskActive`, `deleteTask`, `adoptSuggestedTask`. All gated by `requireParent()` (owner/parent only, scoped to caller's household). Assignment sync validates that every kid id belongs to the caller's household before deleting and re-inserting `task_assignments`.
+
+### M5 — Kid core
+
+- Cleaned up the M3 diagnostic `console.log` lines from `proxy.ts`, `app/parent/layout.tsx`, `app/parent/page.tsx`, `app/parent/tasks/page.tsx`, and `app/onboarding/page.tsx`. The fix-on-error fallback in the proxy (return `supabaseResponse` instead of redirecting on a profile-fetch error) was kept — it's load-bearing protection against another redirect loop.
+- New shared helpers: [lib/levels.ts](../lib/levels.ts) (level table from spec + `levelFor(totalMinutes)` returning the current Level + percent/minutes to next), [lib/week.ts](../lib/week.ts) (UTC Sunday-anchored `startOfWeekUTC`, `weekDates`, `isoDate`, `DOW_LABELS`).
+- `/kid` layout now has a sticky header with avatar/name + a four-link nav row (Home / Chores / Use time / Badges).
+- `/kid` dashboard — greeting, big color-coded balance card (red < 0, amber < 30, green ≥ 30), three quick-action tiles, level + progress bar (lifetime `sum(minutes_earned)` → `levelFor`), best-active-streak card with a flame that pulses when `streak > 0`, weekly side-by-side bar chart of earned vs used per day, and household leaderboard (kids sorted by minutes earned this week, medal emojis for top 3, "you" highlight).
+- `/kid/tasks` — fetches assignments via `task_assignments → tasks`, plus today's & this-week's completions to compute lock state. Cards show as locked with a reason for: same-kid daily already-claimed, same-kid weekly already-claimed, sibling-claimed-non-shared, and per-minute daily cap reached. Fixed tasks claim in one tap; per-minute tasks open a modal with ±1/±5 controls, projected earn (showing cap clamping), then claim. Toast banner surfaces success/failure.
+- `/kid/log` — current balance display, ±5/±15 controls around a big number, projected post-log balance, optional note chips (iPad / TV / Computer / Phone / Game / Other). Inserts into `screen_time_usage`.
+- Server actions in [app/kid/actions.ts](../app/kid/actions.ts): `claimTask` (handles fixed and per-minute, enforces per-kid recurrence guard, applies per-minute cap by clamping `minutes_earned` to remaining capacity, lets the existing DB trigger handle non-shared sibling collisions) and `logScreenTime`. Both gated by `requireKid()`.
+- Migration `20260425000002_kid_visibility.sql` — broadens the SELECT policy on `task_completions` and `streaks` so any household member can read any row scoped to their household. Was needed for sibling-lock detection on `/kid/tasks` and a working household leaderboard on `/kid` (the original parent-or-self policy returned an empty set when a kid asked about siblings, silently breaking both features). `screen_time_usage` and `balance_adjustments` policies stay parent-or-self for privacy.
 
 ---
 

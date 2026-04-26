@@ -12,19 +12,13 @@ export default async function OnboardingPage() {
   const claims = data?.claims;
   if (!claims?.sub) redirect("/login");
 
-  const { data: existingProfile, error: profileError } = await supabase
+  const { data: existingProfile } = await supabase
     .from("profiles")
     .select("role")
     .eq("id", claims.sub)
     .maybeSingle();
 
-  if (profileError) {
-    console.error("[onboarding] profile fetch error:", profileError.message);
-  }
   if (existingProfile) {
-    console.log(
-      `[onboarding] profile exists (role=${existingProfile.role}) — redirect ${existingProfile.role === "child" ? "/kid" : "/parent"}`,
-    );
     redirect(existingProfile.role === "child" ? "/kid" : "/parent");
   }
 

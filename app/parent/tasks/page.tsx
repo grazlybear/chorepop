@@ -15,10 +15,7 @@ export default async function ParentTasksPage() {
   const supabase = await createClient();
   const { data: claimsData } = await supabase.auth.getClaims();
   const userId = claimsData?.claims?.sub;
-  if (!userId) {
-    console.log("[parent/tasks] no claims — redirect /login");
-    redirect("/login");
-  }
+  if (!userId) redirect("/login");
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
@@ -29,10 +26,7 @@ export default async function ParentTasksPage() {
   if (profileError) {
     throw new Error(`Could not load your profile: ${profileError.message}`);
   }
-  if (!profile?.household_id) {
-    console.log("[parent/tasks] no household — redirect /onboarding");
-    redirect("/onboarding");
-  }
+  if (!profile?.household_id) redirect("/onboarding");
 
   const [tasksResult, kidsResult, suggestedResult] = await Promise.all([
     supabase

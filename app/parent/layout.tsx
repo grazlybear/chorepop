@@ -10,10 +10,7 @@ export default async function ParentLayout({
 }) {
   const supabase = await createClient();
   const { data } = await supabase.auth.getClaims();
-  if (!data?.claims?.sub) {
-    console.log("[parent/layout] no claims — redirect /login");
-    redirect("/login");
-  }
+  if (!data?.claims?.sub) redirect("/login");
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
@@ -22,15 +19,9 @@ export default async function ParentLayout({
     .maybeSingle();
 
   if (profileError) {
-    console.error("[parent/layout] profile fetch error:", profileError.message);
     throw new Error(`Could not load your profile: ${profileError.message}`);
   }
-  if (!profile) {
-    console.log(
-      `[parent/layout] no profile for ${data.claims.sub} — redirect /onboarding`,
-    );
-    redirect("/onboarding");
-  }
+  if (!profile) redirect("/onboarding");
   if (profile.role === "child") redirect("/kid");
 
   let householdName: string | undefined;

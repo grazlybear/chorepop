@@ -19,10 +19,7 @@ export default async function ParentDashboardPage() {
   const supabase = await createClient();
   const { data: claimsData } = await supabase.auth.getClaims();
   const userId = claimsData?.claims?.sub;
-  if (!userId) {
-    console.log("[parent/page] no claims — redirect /login");
-    redirect("/login");
-  }
+  if (!userId) redirect("/login");
 
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
@@ -31,15 +28,9 @@ export default async function ParentDashboardPage() {
     .maybeSingle();
 
   if (profileError) {
-    console.error("[parent/page] profile fetch error:", profileError.message);
     throw new Error(`Could not load your profile: ${profileError.message}`);
   }
-  if (!profile?.household_id) {
-    console.log(
-      `[parent/page] profile=${JSON.stringify(profile)} — redirect /onboarding`,
-    );
-    redirect("/onboarding");
-  }
+  if (!profile?.household_id) redirect("/onboarding");
 
   const { data: kidsData } = await supabase
     .from("profiles")

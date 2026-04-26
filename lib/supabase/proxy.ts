@@ -93,10 +93,6 @@ export async function updateSession(request: NextRequest) {
     // Don't trap the user in a redirect loop on transient DB / RLS errors.
     // Let the request through; page-level guards will redirect properly
     // once the situation resolves.
-    console.error(
-      `[proxy] profile lookup failed for ${userId} on ${pathname}:`,
-      profileError.message,
-    );
     return supabaseResponse;
   }
 
@@ -105,9 +101,6 @@ export async function updateSession(request: NextRequest) {
   if (!role) {
     // Authenticated but no profile yet — only onboarding is allowed.
     if (isOnboarding) return supabaseResponse;
-    console.log(
-      `[proxy] no profile for user ${userId} (path ${pathname}) — redirecting to /onboarding`,
-    );
     return redirectWithCookies(request, supabaseResponse, ONBOARDING);
   }
 
