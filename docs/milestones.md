@@ -15,8 +15,8 @@ implementation plan and cross-milestone decisions.
 | 1 | Foundation & design system                      | ✅ Done      |
 | 2 | Auth — parent Google OAuth + kid PIN            | ✅ Done      |
 | 3 | Parent — kids & household pages                 | ✅ Done      |
-| 4 | Parent — tasks CRUD + assignments               | ⏳ Next      |
-| 5 | Kid core — dashboard, tasks, screen-time log    | Pending      |
+| 4 | Parent — tasks CRUD + assignments               | ✅ Done      |
+| 5 | Kid core — dashboard, tasks, screen-time log    | ⏳ Next      |
 | 6 | Kid extras — achievements, summaries            | Pending      |
 | 7 | Polish — realtime, confetti, odometer, sounds   | Pending      |
 
@@ -97,16 +97,19 @@ Next 16's `cacheComponents: true` requires explicit `<Suspense>` around all unca
 - `/parent/kids` — collapsible "Add kid" form (name + emoji avatar picker + 4-digit PIN), per-kid card with inline balance-adjust form (signed integer + optional reason → `balance_adjustments`) and inline reset-PIN form (calls existing `resetKidPin`).
 - `/parent/household` — big copyable 6-char invite code, owner-only "Generate new code" (calls `generate_invite_code()` then UPDATEs the household), vacation-mode toggle (`households.is_paused`), parents/owners member list with owner-only "Make owner" (atomic role swap + `households.created_by` update) and "Remove" actions.
 - New server actions: [adjustBalance](../app/parent/kids/actions.ts) and [household/actions.ts](../app/parent/household/actions.ts) (`regenerateInviteCode`, `setHouseholdPaused`, `changeMemberRole`, `removeMember`). All check role and household membership before writing; non-owner attempts return a friendly error.
+- Mid-milestone fixes (after a redirect-loop incident): proxy now copies any cookies Supabase rotated mid-request onto every redirect response (was: silently dropped, breaking auth on the next request). `/parent` layout now fetches `households.name` separately instead of via embedded resource (the embedded join under RLS could filter the parent profile row out, masquerading as "no profile"). `console.log` lines were left in `proxy.ts`, `app/parent/layout.tsx`, `app/parent/page.tsx`, and `app/onboarding/page.tsx` for diagnostic visibility — slated for removal in M5 cleanup.
+
+### M4 — Parent tasks
+
+- Migration `20260425000001_tasks_numeric_reward.sql` — promotes `tasks.reward_amount` from `integer` to `numeric(6,2)` so per_minute rates like `0.5` (Read, Outside Time, Homework starters) round-trip correctly. `task_completions.minutes_earned` stays integer; computation will floor at insert time when M5 wires up claiming.
+- `/parent/tasks` — server-rendered list of household tasks with reward summary, recurrence, assigned-kid chips, and active state. Per-task controls: Edit, Pause/Resume (`is_active`), Delete (cascades completions via FK).
+- Add/Edit form (`tasks-manager.tsx`): name, optional description, 24-emoji icon picker, fixed vs per-minute reward type, decimal-allowing amount input, recurrence chooser, shared toggle, optional daily cap (per-minute only), kid-assignment checkbox grid. Form is reused for create and edit by passing the existing row.
+- Quick-add starter-task picker fed by the seeded `suggested_tasks` table. Auto-assigns to all active kids on click. Filters out starters whose name has already been adopted (case-insensitive) so the list shrinks as you go.
+- Server actions in [tasks/actions.ts](../app/parent/tasks/actions.ts): `createTask`, `updateTask`, `setTaskActive`, `deleteTask`, `adoptSuggestedTask`. All gated by `requireParent()` (owner/parent only, scoped to caller's household). Assignment sync validates that every kid id belongs to the caller's household before deleting and re-inserting `task_assignments`.
 
 ---
 
 ## Pending milestones (detail)
-
-### M4 — Parent tasks
-
-- `/parent/tasks` — list household tasks with edit/delete/toggle-active.
-- Create task form: name, emoji picker, reward type (`fixed | per_minute`), reward amount, recurrence (`daily | weekly | anytime`), shared toggle, max-daily-minutes (per-minute only), and checkbox grid assigning to kids (writes `task_assignments`).
-- Starter-task picker: on empty state, show suggested starter tasks from the spec (make bed, empty dishwasher, read, outside time, exercise, pick up room, take out trash, homework) with one-click add.
 
 ### M5 — Kid core
 
